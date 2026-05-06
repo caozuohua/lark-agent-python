@@ -1,0 +1,6 @@
+-e venv/
+__pycache__/
+.env
+credentials.json
+agent.db
+env-bak
