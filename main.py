@@ -73,6 +73,7 @@ def run_shell(command: str, timeout: int = 30, cwd: str = None) -> str:
     try:
         result = subprocess.run(
             command, shell=True, capture_output=True,
+<<<<<<< HEAD
             text=True, timeout=timeout, cwd=cwd
         )
         output = (result.stdout + result.stderr).strip()
@@ -830,3 +831,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+=======
+>>>>>>> origin/main
