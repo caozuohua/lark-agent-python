@@ -21,14 +21,14 @@ from vertexai.generative_models import (
     GenerativeModel, Tool, FunctionDeclaration, Part, Content
 )
 
-# ─── 日志 ────────────────────────────────────────────────────────────────────
+# ─── 日志 ────────────────────────────────────────────────────────────[...]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 log = logging.getLogger(__name__)
 
-# ─── 配置 ────────────────────────────────────────────────────────────────────
+# ─── 配置 ────────────────────────────────────────────────────────────[...]
 LARK_APP_ID       = os.environ["LARK_APP_ID"]
 LARK_APP_SECRET   = os.environ["LARK_APP_SECRET"]
 GCP_PROJECT_ID    = os.environ["GCP_PROJECT_ID"]
@@ -43,20 +43,20 @@ BLOG_DIR          = os.environ.get("BLOG_DIR", "/var/www/blog")
 GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_USER       = os.environ.get("GITHUB_USER", "")
 
-# ─── 持久化存储 ───────────────────────────────────────────────────────────────
+# ─── 持久化存储 ─────────────────────────────────────────────────────────[...]
 history_db    = SqliteDict(DB_PATH, tablename="history",     autocommit=True)
 preference_db = SqliteDict(DB_PATH, tablename="preferences", autocommit=True)
 memory_db     = SqliteDict(DB_PATH, tablename="memory",      autocommit=True)
 evolution_db  = SqliteDict(DB_PATH, tablename="evolution",   autocommit=True)
 tools_db      = SqliteDict(DB_PATH, tablename="custom_tools", autocommit=True)  # 动态工具库
 
-# ─── 消息去重 ─────────────────────────────────────────────────────────────────
+# ─── 消息去重 ──────────────────────────────────────────────────────────[...]
 processed_message_ids: set = set()
 
-# ─── 运行时可变状态 ───────────────────────────────────────────────────────────
+# ─── 运行时可变状态 ───────────────────────────────────────────────────────[...]
 _current_system_prompt = SYSTEM_PROMPT
 
-# ─── Lark 客户端 ──────────────────────────────────────────────────────────────
+# ─── Lark 客户端 ────────────────────────────────────────────────────────[...]
 lark_client = lark.Client.builder() \
     .app_id(LARK_APP_ID) \
     .app_secret(LARK_APP_SECRET) \
@@ -64,16 +64,15 @@ lark_client = lark.Client.builder() \
     .build()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 # Shell 执行（基础能力）
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 
 def run_shell(command: str, timeout: int = 30, cwd: str = None) -> str:
     """执行 shell 命令，返回结果"""
     try:
         result = subprocess.run(
             command, shell=True, capture_output=True,
-<<<<<<< HEAD
             text=True, timeout=timeout, cwd=cwd
         )
         output = (result.stdout + result.stderr).strip()
@@ -85,16 +84,16 @@ def run_shell(command: str, timeout: int = 30, cwd: str = None) -> str:
         return f"❌ 执行失败: {e}"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 # 工具定义
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 
 def build_tools() -> Tool:
     """构建工具列表（含动态工具）"""
 
     declarations = [
 
-        # ── 系统工具 ──────────────────────────────────────────────────────────
+        # ── 系统工具 ────────────────────────────────────────────────────────[...]
         FunctionDeclaration(
             name="run_shell",
             description="在 VPS 上执行 shell 命令。可用于查看系统状态、管理文件、运行脚本等。仅限管理员。",
@@ -109,7 +108,7 @@ def build_tools() -> Tool:
             }
         ),
 
-        # ── 博客工具 ──────────────────────────────────────────────────────────
+        # ── 博客工具 ────────────────────────────────────────────────────────[...]
         FunctionDeclaration(
             name="blog_write",
             description="创建或更新博客文章。自动生成 Hugo 格式的 Markdown 文件。",
@@ -154,7 +153,7 @@ def build_tools() -> Tool:
             }
         ),
 
-        # ── GitHub 工具 ───────────────────────────────────────────────────────
+        # ── GitHub 工具 ──────────────────────────────────────────────────────
         FunctionDeclaration(
             name="github_repo_list",
             description="列出 GitHub 账号下的仓库。",
@@ -243,7 +242,7 @@ def build_tools() -> Tool:
             }
         ),
 
-        # ── 记忆工具 ──────────────────────────────────────────────────────────
+        # ── 记忆工具 ────────────────────────────────────────────────────────[...]
         FunctionDeclaration(
             name="remember",
             description="将重要信息存入长期记忆。",
@@ -292,16 +291,16 @@ def build_tools() -> Tool:
     return Tool(function_declarations=declarations)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 # 工具执行
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════���════════════════════════════════════════════════[...]
 
 def execute_tool(tool_name: str, args: dict, user_id: str) -> str:
     global _current_system_prompt
 
     is_admin = not ADMIN_USERS or user_id in ADMIN_USERS
 
-    # ── run_shell ─────────────────────────────────────────────────────────────
+    # ── run_shell ────────────────────────────────────────────────────────[...]
     if tool_name == "run_shell":
         if not is_admin:
             return "❌ 权限不足"
@@ -317,7 +316,7 @@ def execute_tool(tool_name: str, args: dict, user_id: str) -> str:
         log.info(f"执行命令: {cmd}")
         return run_shell(cmd, timeout=timeout, cwd=cwd)
 
-    # ── blog_write ────────────────────────────────────────────────────────────
+    # ── blog_write ─────────────────────────────────────────────────────────[...]
     elif tool_name == "blog_write":
         title   = args.get("title", "")
         content = args.get("content", "")
@@ -344,7 +343,7 @@ tags: [{", ".join(tag_list)}]
         except Exception as e:
             return f"❌ 保存失败: {e}"
 
-    # ── blog_list ─────────────────────────────────────────────────────────────
+    # ── blog_list ────────────────────────────────────────────────────────[...]
     elif tool_name == "blog_list":
         posts_dir = f"{BLOG_DIR}/content/posts"
         if not os.path.exists(posts_dir):
@@ -360,7 +359,7 @@ tags: [{", ".join(tag_list)}]
             lines.append(f"- {f} ({size}B, {mtime})")
         return f"📝 共 {len(files)} 篇文章：\n" + "\n".join(lines)
 
-    # ── blog_publish ──────────────────────────────────────────────────────────
+    # ── blog_publish ─────────────────────────────────────────────────────────
     elif tool_name == "blog_publish":
         push = args.get("push_github", False)
         result = run_shell("hugo", cwd=BLOG_DIR, timeout=60)
@@ -375,7 +374,7 @@ tags: [{", ".join(tag_list)}]
             result += f"\n\nGitHub 推送：\n{push_result}"
         return result
 
-    # ── blog_delete ───────────────────────────────────────────────────────────
+    # ── blog_delete ──────────────────────────────────────────────────────────[...]
     elif tool_name == "blog_delete":
         filename = args.get("filename", "")
         filepath = f"{BLOG_DIR}/content/posts/{filename}"
@@ -451,7 +450,7 @@ tags: [{", ".join(tag_list)}]
             return f"✅ 仓库已创建：https://github.com/{GITHUB_USER}/{name}"
         return f"❌ 创建失败：{result[:200]}"
 
-    # ── tool_create ───────────────────────────────────────────────────────────
+    # ── tool_create ──────────────────────────────────────────────────────────[...]
     elif tool_name == "tool_create":
         if not is_admin:
             return "❌ 权限不足"
@@ -489,7 +488,7 @@ tags: [{", ".join(tag_list)}]
         log.info(f"新工具已注册: {name}")
         return f"✅ 工具 [{name}] 已创建并注册\n脚本路径：{script_path}\n描述：{desc}"
 
-    # ── tool_list ─────────────────────────────────────────────────────────────
+    # ── tool_list ────────────────────────────────────────────────────────────[...]
     elif tool_name == "tool_list":
         if not tools_db:
             return "📦 暂无自定义工具"
@@ -499,7 +498,7 @@ tags: [{", ".join(tag_list)}]
             lines.append(f"- [{name}] {info['description']} ({info['lang']}, {t})")
         return "📦 自定义工具列表：\n" + "\n".join(lines)
 
-    # ── tool_run ──────────────────────────────────────────────────────────────
+    # ── tool_run ─────────────────────────────────────────────────────────[...]
     elif tool_name == "tool_run":
         name = args.get("name", "")
         tool_args = args.get("args", "{}")
@@ -517,7 +516,7 @@ tags: [{", ".join(tag_list)}]
         log.info(f"运行自定义工具: {name}")
         return run_shell(cmd, timeout=60)
 
-    # ── tool_delete ───────────────────────────────────────────────────────────
+    # ── tool_delete ──────────────────────────────────────────────────────────[...]
     elif tool_name == "tool_delete":
         if not is_admin:
             return "❌ 权限不足"
@@ -530,14 +529,14 @@ tags: [{", ".join(tag_list)}]
         del tools_db[name]
         return f"✅ 工具 [{name}] 已删除"
 
-    # ── remember ──────────────────────────────────────────────────────────────
+    # ── remember ─────────────────────────────────────────────────────────[...]
     elif tool_name == "remember":
         key   = args.get("key", "")
         value = args.get("value", "")
         memory_db[f"{user_id}:{key}"] = {"value": value, "timestamp": time.time()}
         return f"✅ 已记住：{key}"
 
-    # ── recall ────────────────────────────────────────────────────────────────
+    # ── recall ──────────────────────────────────────────────────────────[...]
     elif tool_name == "recall":
         key = args.get("key", "").lower()
         results = [
@@ -580,9 +579,9 @@ tags: [{", ".join(tag_list)}]
     return f"未知工具: {tool_name}"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 # Gemini 调用
-# ═══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════���═════════════════[...]
 
 def call_gemini_sync(user_id: str, user_message: str) -> str:
     credentials = service_account.Credentials.from_service_account_file(
@@ -653,9 +652,9 @@ def call_gemini_sync(user_id: str, user_message: str) -> str:
     return reply
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 # 发消息
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 
 def send_text_message(receive_id: str, text: str, receive_id_type: str = "open_id"):
     request = CreateMessageRequest.builder() \
@@ -672,9 +671,9 @@ def send_text_message(receive_id: str, text: str, receive_id_type: str = "open_i
         log.warning(f"发送失败: {resp.code} {resp.msg}")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 # 内置指令
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 
 def handle_command(user_id: str, text: str):
     global GEMINI_MODEL
@@ -740,9 +739,9 @@ def handle_command(user_id: str, text: str):
     return None
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 # 事件处理
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 
 def do_p2_im_message_receive_v1(data) -> None:
     message = data.event.message
@@ -791,9 +790,9 @@ def do_p2_im_message_receive_v1(data) -> None:
     send_text_message(target_id, reply, id_type)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 # 启动
-# ═══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════[...]
 
 def cleanup_db():
     cutoff = time.time() - 30 * 86400
@@ -831,5 +830,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-=======
->>>>>>> origin/main
