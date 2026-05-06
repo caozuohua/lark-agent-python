@@ -22,14 +22,14 @@ from vertexai.generative_models import (
     GenerativeModel, Tool, FunctionDeclaration, Part, Content
 )
 
-# ─── 日志 ────────────────────────────────────────────────────────────[...]
+# ─── 日志 ───────────────────────────────────────────────────────────[...]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 log = logging.getLogger(__name__)
 
-# ─── 配置 ────────────────────────────────────────────────────────────[...]
+# ─── 配置 ───────────────────────────────────────────────────────────[...]
 LARK_APP_ID       = os.environ["LARK_APP_ID"]
 LARK_APP_SECRET   = os.environ["LARK_APP_SECRET"]
 GCP_PROJECT_ID    = os.environ["GCP_PROJECT_ID"]
@@ -44,17 +44,17 @@ BLOG_DIR          = os.environ.get("BLOG_DIR", "/var/www/blog")
 GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_USER       = os.environ.get("GITHUB_USER", "")
 
-# ─── 持久化存储 ─────────────────────────────────────────────────────────[...]
+# ─── 持久化存储 ────────────────────────────────────────────────────────[...]
 history_db    = SqliteDict(DB_PATH, tablename="history",     autocommit=True)
 preference_db = SqliteDict(DB_PATH, tablename="preferences", autocommit=True)
 memory_db     = SqliteDict(DB_PATH, tablename="memory",      autocommit=True)
 evolution_db  = SqliteDict(DB_PATH, tablename="evolution",   autocommit=True)
 tools_db      = SqliteDict(DB_PATH, tablename="custom_tools", autocommit=True)  # 动态工具库
 
-# ─── 消息去重 ──────────────────────────────────────────────────────────[...]
+# ─── 消息去重 ─────────────────────────────────────────────────────────[...]
 processed_message_ids: set = set()
 
-# ─── 运行时可变状态 ───────────────────────────────────────────────────────[...]
+# ─── 运行时可变状态 ──────────────────────────────────────────────────────[...]
 def build_runtime_context() -> str:
     """启动时自动感知运行环境，注入到 system prompt"""
     import pwd
@@ -107,7 +107,6 @@ def build_runtime_context() -> str:
 _runtime_context = build_runtime_context()
 _current_system_prompt = SYSTEM_PROMPT + "\n\n" + _runtime_context
 log.info(f"运行环境已注入 system prompt")
-#_current_system_prompt = SYSTEM_PROMPT
 
 # ─── Lark 客户端 ────────────────────────────────────────────────────────[...]
 lark_client = lark.Client.builder() \
@@ -249,7 +248,7 @@ def build_tools() -> Tool:
             }
         ),
 
-        # ── 动态工具管理 ──────────────────────────────────────────────────────
+        # ── 动态工具管理 ─────────────────────────────────────────────────────[...]
         FunctionDeclaration(
             name="tool_create",
             description="创建新工具：将一段 shell 脚本或 Python 代码注册为可调用工具，实现自我扩展。仅限管理员。",
@@ -363,7 +362,7 @@ def build_tools() -> Tool:
 
 # ════════════════════════════════════════════════════════════════[...]
 # 工具执行
-# ═══════════════���════════════════════════════════════════════════[...]
+# ════════════════════════════════════════════════════════════════[...]
 
 def execute_tool(tool_name: str, args: dict, user_id: str) -> str:
     global _current_system_prompt
@@ -444,7 +443,7 @@ tags: [{", ".join(tag_list)}]
             result += f"\n\nGitHub 推送：\n{push_result}"
         return result
 
-    # ── blog_delete ──────────────────────────────────────────────────────────[...]
+    # ── blog_delete ────────────────────────────────────────────────────────[...]
     elif tool_name == "blog_delete":
         filename = args.get("filename", "")
         filepath = f"{BLOG_DIR}/content/posts/{filename}"
@@ -520,7 +519,7 @@ tags: [{", ".join(tag_list)}]
             return f"✅ 仓库已创建：https://github.com/{GITHUB_USER}/{name}"
         return f"❌ 创建失败：{result[:200]}"
 
-    # ── tool_create ──────────────────────────────────────────────────────────[...]
+    # ── tool_create ────────────────────────────────────────────────────────[...]
     elif tool_name == "tool_create":
         if not is_admin:
             return "❌ 权限不足"
@@ -558,7 +557,7 @@ tags: [{", ".join(tag_list)}]
         log.info(f"新工具已注册: {name}")
         return f"✅ 工具 [{name}] 已创建并注册\n脚本路径：{script_path}\n描述：{desc}"
 
-    # ── tool_list ────────────────────────────────────────────────────────────[...]
+    # ── tool_list ────────────────────────────────────────────────────────[...]
     elif tool_name == "tool_list":
         if not tools_db:
             return "📦 暂无自定义工具"
@@ -568,7 +567,7 @@ tags: [{", ".join(tag_list)}]
             lines.append(f"- [{name}] {info['description']} ({info['lang']}, {t})")
         return "📦 自定义工具列表：\n" + "\n".join(lines)
 
-    # ── tool_run ─────────────────────────────────────────────────────────[...]
+    # ── tool_run ────────────────────────────────────────────────────────[...]
     elif tool_name == "tool_run":
         name = args.get("name", "")
         tool_args = args.get("args", "{}")
@@ -586,7 +585,7 @@ tags: [{", ".join(tag_list)}]
         log.info(f"运行自定义工具: {name}")
         return run_shell(cmd, timeout=60)
 
-    # ── tool_delete ──────────────────────────────────────────────────────────[...]
+    # ── tool_delete ────────────────────────────────────────────────────────[...]
     elif tool_name == "tool_delete":
         if not is_admin:
             return "❌ 权限不足"
@@ -599,7 +598,7 @@ tags: [{", ".join(tag_list)}]
         del tools_db[name]
         return f"✅ 工具 [{name}] 已删除"
 
-    # ── remember ─────────────────────────────────────────────────────────[...]
+    # ── remember ────────────────────────────────────────────────────────[...]
     elif tool_name == "remember":
         key   = args.get("key", "")
         value = args.get("value", "")
@@ -616,7 +615,7 @@ tags: [{", ".join(tag_list)}]
         ]
         return ("📝 找到：\n" + "\n".join(results)) if results else f"未找到：{key}"
 
-    # ── update_system_prompt ──────────────────────────────────────────────────
+    # ���─ update_system_prompt ──────────────────────────────────────────────────
     elif tool_name == "update_system_prompt":
         if not is_admin:
             return "❌ 权限不足"
@@ -661,18 +660,17 @@ tags: [{", ".join(tag_list)}]
         if not os.path.exists(file_path):
             return f"❌ 文件不存在：{file_path}"
 
-    # 把 user_id 存到 args 里供发送使用
-    # 通过全局变量传递当前用户（在调用链里）
         send_file_message(user_id, file_path, "open_id")
         filename = os.path.basename(file_path)
         size = os.path.getsize(file_path) / 1024
         return f"✅ 文件已发送：{filename}（{size:.1f}KB）"
+
     return f"未知工具: {tool_name}"
 
 
 # ════════════════════════════════════════════════════════════════[...]
 # Gemini 调用
-# ══════════════════════════════════════════════���═════════════════[...]
+# ════════════════════════════════════════════════════════════════[...]
 
 def call_gemini_sync(user_id: str, user_message: str) -> str:
     credentials = service_account.Credentials.from_service_account_file(
@@ -743,13 +741,13 @@ def call_gemini_sync(user_id: str, user_message: str) -> str:
     return reply
 
 
-# ===
+# ════════════════════════════════════════════════════════════════[...]
 # 发文件
-# ===
+# ════════════════════════════════════════════════════════════════[...]
 
 def upload_file_to_lark(file_path: str) -> str:
     """上传文件到 Lark，返回 file_key"""
-    import httpx, asyncio
+    import requests
 
     if not os.path.exists(file_path):
         return f"❌ 文件不存在：{file_path}"
@@ -759,7 +757,6 @@ def upload_file_to_lark(file_path: str) -> str:
         return f"❌ 文件过大：{file_size/1024/1024:.1f}MB，Lark 限制 30MB"
 
     # 获取 token（复用现有逻辑）
-    import requests
     resp = requests.post(
         f"https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal",
         json={"app_id": LARK_APP_ID, "app_secret": LARK_APP_SECRET}
@@ -841,20 +838,7 @@ def send_file_message(receive_id: str, file_path: str, receive_id_type: str = "o
 # ════════════════════════════════════════════════════════════════[...]
 
 def send_text_message(receive_id: str, text: str, receive_id_type: str = "open_id"):
-    '''
-    request = CreateMessageRequest.builder() \
-        .receive_id_type(receive_id_type) \
-        .request_body(
-            CreateMessageRequestBody.builder()
-            .receive_id(receive_id)
-            .msg_type("text")
-            .content(json.dumps({"text": text}))
-            .build()
-        ).build()
-    resp = lark_client.im.v1.message.create(request)
-    if not resp.success():
-        log.warning(f"发送失败: {resp.code} {resp.msg}")
-    '''
+    """发送文本消息（支持超长自动分片）"""
     # 超长自动分片
     MAX_LEN = 3800
     if len(text) <= MAX_LEN:
@@ -884,6 +868,8 @@ def send_text_message(receive_id: str, text: str, receive_id_type: str = "open_i
                 .build()
             ).build()
         resp = lark_client.im.v1.message.create(request)
+        if not resp.success():
+            log.warning(f"发送失败: {resp.code} {resp.msg}")
 
 # ════════════════════════════════════════════════════════════════[...]
 # 内置指令
@@ -931,7 +917,6 @@ def handle_command(user_id: str, text: str):
         }
         if new_model not in ALLOWED_MODELS:
             return f"❌ 不支持的模型：{new_model}\n发送 /model 查看可用列表"
-        #global GEMINI_MODEL
         GEMINI_MODEL = new_model
         return f"✅ 模型已切换为：{new_model}"
     if cmd == "/refresh":
@@ -997,19 +982,6 @@ def do_p2_im_message_receive_v1(data) -> None:
 
     log.info(f"收到消息 [{user_open_id[:8]}...]: {user_text}")
 
-    '''
-    reply = handle_command(user_open_id, user_text)
-    if reply is None:
-        try:
-            reply = call_gemini_sync(user_open_id, user_text)
-        except Exception as e:
-            log.error(f"Gemini 调用失败: {e}", exc_info=True)
-            reply = "抱歉，AI 服务暂时异常，请稍后再试。"
-
-    target_id   = user_open_id if chat_type == "p2p" else chat_id
-    id_type     = "open_id"    if chat_type == "p2p" else "chat_id"
-    send_text_message(target_id, reply, id_type)
-    '''
     import threading
     def handle():
         reply = handle_command(user_open_id, user_text)
