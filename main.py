@@ -1,8 +1,9 @@
 """
-Lark Bot + Vertex AI Agent - v4.2
+Lark Bot + Vertex AI Agent - v4.3
 新增：GitHub 集成 / 动态工具系统 / 博客管理
 新增：支持模型设置
 优化：run_shell预处理
+优化：环境感知+工具调用失败时自动反思+文件发送
 """
 
 import os
@@ -54,7 +55,59 @@ tools_db      = SqliteDict(DB_PATH, tablename="custom_tools", autocommit=True)  
 processed_message_ids: set = set()
 
 # ─── 运行时可变状态 ───────────────────────────────────────────────────────[...]
-_current_system_prompt = SYSTEM_PROMPT
+def build_runtime_context() -> str:
+    """启动时自动感知运行环境，注入到 system prompt"""
+    import pwd
+    ctx = {}
+
+    # 基本身份
+    ctx["运行用户"] = pwd.getpwuid(os.getuid()).pw_name
+    ctx["主目录"] = os.path.expanduser("~")
+
+    # sudo 权限（能执行哪些命令）
+    sudo_result = subprocess.run(
+        "sudo -l 2>/dev/null | grep NOPASSWD | awk '{print $NF}'",
+        shell=True, capture_output=True, text=True
+    )
+    ctx["sudo权限"] = sudo_result.stdout.strip() or "无"
+
+    # 关键目录
+    ctx["博客目录"] = BLOG_DIR
+    ctx["Agent目录"] = "/opt/lark-agent"
+    ctx["工具脚本目录"] = "/opt/lark-agent/tools"
+    ctx["pip路径"] = "/opt/lark-agent/venv/bin/pip"
+
+    # 已安装的关键工具
+    tools_check = ["git", "gh", "hugo", "python3", "curl", "jq", "node", "npm"]
+    available = []
+    for t in tools_check:
+        r = subprocess.run(f"which {t}", shell=True, capture_output=True)
+        if r.returncode == 0:
+            available.append(t)
+    ctx["已安装工具"] = ", ".join(available)
+
+    # GitHub 认证状态
+    gh_status = subprocess.run(
+        "gh auth status 2>&1 | head -2",
+        shell=True, capture_output=True, text=True
+    )
+    ctx["GitHub状态"] = gh_status.stdout.strip() or "未认证"
+
+    # 博客文章数
+    posts_dir = f"{BLOG_DIR}/content/posts"
+    post_count = len(os.listdir(posts_dir)) if os.path.exists(posts_dir) else 0
+    ctx["博客文章数"] = post_count
+
+    # 格式化成自然语言
+    lines = ["=== 运行环境（启动时自动感知）==="]
+    for k, v in ctx.items():
+        lines.append(f"{k}：{v}")
+    return "\n".join(lines)
+
+_runtime_context = build_runtime_context()
+_current_system_prompt = SYSTEM_PROMPT + "\n\n" + _runtime_context
+log.info(f"运行环境已注入 system prompt")
+#_current_system_prompt = SYSTEM_PROMPT
 
 # ─── Lark 客户端 ────────────────────────────────────────────────────────[...]
 lark_client = lark.Client.builder() \
@@ -77,6 +130,8 @@ def run_shell(command: str, timeout: int = 30, cwd: str = None) -> str:
         )
         output = (result.stdout + result.stderr).strip()
         output = output[:3000]
+        if result.returncode != 0 and "permission denied" in output.lower():
+            return output + "\n\n💡 提示：此命令需要 sudo 权限，请在命令前加 sudo 重试"
         return f"退出码: {result.returncode}\n{output}" if output else f"退出码: {result.returncode}"
     except subprocess.TimeoutExpired:
         return f"❌ 命令超时（{timeout}s）"
@@ -285,6 +340,21 @@ def build_tools() -> Tool:
             name="get_agent_status",
             description="获取 Agent 当前状态。",
             parameters={"type": "object", "properties": {}}
+        ),
+
+        FunctionDeclaration(
+            name="send_file",
+            description="将 VPS 上的文件发送给用户。支持文本、图片、PDF、压缩包等各种格式，单文件限 30MB。",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "VPS 上的文件绝对路径，如 /var/www/blog/content/posts/hello.md"
+                    }
+                },
+                "required": ["file_path"]
+            }
         ),
     ]
 
@@ -575,7 +645,28 @@ tags: [{", ".join(tag_list)}]
             f"内存：{mem.strip()}\n"
             f"磁盘：{disk.strip()}"
         )
+    elif tool_name == "send_file":
+        file_path = args.get("file_path", "")
 
+        # 安全检查：禁止发送敏感文件
+        FORBIDDEN_PATHS = [
+            "/opt/lark-agent/.env",
+            "/opt/lark-agent/credentials.json",
+            "/home/lark-agent/.github_token",
+            "/home/lark-agent/.git-credentials",
+        ]
+        if file_path in FORBIDDEN_PATHS:
+            return "❌ 安全限制：该文件包含敏感信息，禁止发送"
+
+        if not os.path.exists(file_path):
+            return f"❌ 文件不存在：{file_path}"
+
+    # 把 user_id 存到 args 里供发送使用
+    # 通过全局变量传递当前用户（在调用链里）
+        send_file_message(user_id, file_path, "open_id")
+        filename = os.path.basename(file_path)
+        size = os.path.getsize(file_path) / 1024
+        return f"✅ 文件已发送：{filename}（{size:.1f}KB）"
     return f"未知工具: {tool_name}"
 
 
@@ -652,6 +743,99 @@ def call_gemini_sync(user_id: str, user_message: str) -> str:
     return reply
 
 
+# ===
+# 发文件
+# ===
+
+def upload_file_to_lark(file_path: str) -> str:
+    """上传文件到 Lark，返回 file_key"""
+    import httpx, asyncio
+
+    if not os.path.exists(file_path):
+        return f"❌ 文件不存在：{file_path}"
+
+    file_size = os.path.getsize(file_path)
+    if file_size > 30 * 1024 * 1024:  # 30MB 限制
+        return f"❌ 文件过大：{file_size/1024/1024:.1f}MB，Lark 限制 30MB"
+
+    # 获取 token（复用现有逻辑）
+    import requests
+    resp = requests.post(
+        f"https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal",
+        json={"app_id": LARK_APP_ID, "app_secret": LARK_APP_SECRET}
+    )
+    token = resp.json().get("tenant_access_token", "")
+    if not token:
+        return "❌ 获取 Lark Token 失败"
+
+    # 判断文件类型
+    ext = os.path.splitext(file_path)[1].lower()
+    image_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+    if ext in image_exts:
+        # 图片走 image 接口
+        with open(file_path, "rb") as f:
+            resp = requests.post(
+                "https://open.larksuite.com/open-apis/im/v1/images",
+                headers={"Authorization": f"Bearer {token}"},
+                data={"image_type": "message"},
+                files={"image": f}
+            )
+        data = resp.json()
+        if data.get("code") == 0:
+            return f"IMAGE:{data['data']['image_key']}"
+        return f"❌ 图片上传失败：{data}"
+    else:
+        # 其他文件走 file 接口
+        filename = os.path.basename(file_path)
+        with open(file_path, "rb") as f:
+            resp = requests.post(
+                "https://open.larksuite.com/open-apis/im/v1/files",
+                headers={"Authorization": f"Bearer {token}"},
+                data={"file_type": "stream", "file_name": filename},
+                files={"file": (filename, f)}
+            )
+        data = resp.json()
+        if data.get("code") == 0:
+            return f"FILE:{data['data']['file_key']}"
+        return f"❌ 文件上传失败：{data}"
+
+
+def send_file_message(receive_id: str, file_path: str, receive_id_type: str = "open_id"):
+    """发送文件或图片消息"""
+    result = upload_file_to_lark(file_path)
+
+    if result.startswith("IMAGE:"):
+        image_key = result[6:]
+        content = json.dumps({"image_key": image_key})
+        msg_type = "image"
+    elif result.startswith("FILE:"):
+        file_key = result[5:]
+        filename = os.path.basename(file_path)
+        file_size = os.path.getsize(file_path)
+        content = json.dumps({"file_key": file_key, "file_name": filename, "file_size": file_size})
+        msg_type = "file"
+    else:
+        # 上传失败，发文字提示
+        send_text_message(receive_id, result, receive_id_type)
+        return
+
+    request = CreateMessageRequest.builder() \
+        .receive_id_type(receive_id_type) \
+        .request_body(
+            CreateMessageRequestBody.builder()
+            .receive_id(receive_id)
+            .msg_type(msg_type)
+            .content(content)
+            .build()
+        ).build()
+
+    resp = lark_client.im.v1.message.create(request)
+    if not resp.success():
+        log.warning(f"发送文件失败: {resp.code} {resp.msg}")
+    else:
+        log.info(f"文件已发送：{file_path} → {receive_id[:12]}...")
+
 # ════════════════════════════════════════════════════════════════[...]
 # 发消息
 # ════════════════════════════════════════════════════════════════[...]
@@ -720,6 +904,11 @@ def handle_command(user_id: str, text: str):
         #global GEMINI_MODEL
         GEMINI_MODEL = new_model
         return f"✅ 模型已切换为：{new_model}"
+    if cmd == "/refresh":
+        global _current_system_prompt, _runtime_context
+        _runtime_context = build_runtime_context()
+        _current_system_prompt = SYSTEM_PROMPT + "\n\n" + _runtime_context
+        return "✅ 运行环境已重新感知并更新"
     if cmd == "/help":
         return (
             "🤖 指令列表：\n"
@@ -729,6 +918,7 @@ def handle_command(user_id: str, text: str):
             "/tools          自定义工具列表\n"
             "/memory         长期记忆\n"
             "/preference <x> 设置偏好\n"
+            "/refresh        更新环境感知\n"
             "/help           帮助\n\n"
             "💡 对话示例：\n"
             "「帮我写一篇关于Python的博客并发布」\n"
