@@ -1,14 +1,6 @@
-<<<<<<< HEAD
--e venv/
-=======
 venv/
->>>>>>> origin/main
 __pycache__/
 .env
 credentials.json
 agent.db
-<<<<<<< HEAD
 env-bak
-=======
-env-bak
->>>>>>> origin/main
