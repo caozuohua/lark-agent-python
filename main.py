@@ -841,6 +841,7 @@ def send_file_message(receive_id: str, file_path: str, receive_id_type: str = "o
 # ════════════════════════════════════════════════════════════════[...]
 
 def send_text_message(receive_id: str, text: str, receive_id_type: str = "open_id"):
+    '''
     request = CreateMessageRequest.builder() \
         .receive_id_type(receive_id_type) \
         .request_body(
@@ -853,7 +854,36 @@ def send_text_message(receive_id: str, text: str, receive_id_type: str = "open_i
     resp = lark_client.im.v1.message.create(request)
     if not resp.success():
         log.warning(f"发送失败: {resp.code} {resp.msg}")
+    '''
+    # 超长自动分片
+    MAX_LEN = 3800
+    if len(text) <= MAX_LEN:
+        chunks = [text]
+    else:
+        # 按段落切分，避免截断句子
+        chunks = []
+        while text:
+            if len(text) <= MAX_LEN:
+                chunks.append(text)
+                break
+            cut = text.rfind('\n', 0, MAX_LEN)
+            if cut == -1:
+                cut = MAX_LEN
+            chunks.append(text[:cut])
+            text = text[cut:].lstrip('\n')
 
+    for i, chunk in enumerate(chunks):
+        prefix = f"（{i+1}/{len(chunks)}）\n" if len(chunks) > 1 else ""
+        request = CreateMessageRequest.builder() \
+            .receive_id_type(receive_id_type) \
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(receive_id)
+                .msg_type("text")
+                .content(json.dumps({"text": prefix + chunk}))
+                .build()
+            ).build()
+        resp = lark_client.im.v1.message.create(request)
 
 # ════════════════════════════════════════════════════════════════[...]
 # 内置指令
@@ -967,6 +997,7 @@ def do_p2_im_message_receive_v1(data) -> None:
 
     log.info(f"收到消息 [{user_open_id[:8]}...]: {user_text}")
 
+    '''
     reply = handle_command(user_open_id, user_text)
     if reply is None:
         try:
@@ -978,7 +1009,21 @@ def do_p2_im_message_receive_v1(data) -> None:
     target_id   = user_open_id if chat_type == "p2p" else chat_id
     id_type     = "open_id"    if chat_type == "p2p" else "chat_id"
     send_text_message(target_id, reply, id_type)
+    '''
+    import threading
+    def handle():
+        reply = handle_command(user_open_id, user_text)
+        if reply is None:
+            try:
+                reply = call_gemini_sync(user_open_id, user_text)
+            except Exception as e:
+                log.error(f"Gemini 失败: {e}", exc_info=True)
+                reply = "抱歉，处理失败，请重试。"
+        target_id = user_open_id if chat_type == "p2p" else chat_id
+        id_type   = "open_id"    if chat_type == "p2p" else "chat_id"
+        send_text_message(target_id, reply, id_type)
 
+    threading.Thread(target=handle, daemon=True).start()
 
 # ════════════════════════════════════════════════════════════════[...]
 # 启动
