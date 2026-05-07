@@ -6,13 +6,7 @@ import logging
 
 # Configure basic logging to see output in the agent's logs
 # In a real scenario, this might integrate with a more robust logging system
-<<<<<<< HEAD
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-=======
-logging.basicConfig(level=logging.INFO, format='%(
-    asctime)s - %(levelname)s - %(message)s'
-)
->>>>>>> origin/main
 log = logging.getLogger(__name__)
 
 def install_package(package_name: str) -> str:
@@ -68,18 +62,4 @@ def install_package(package_name: str) -> str:
             # Try to provide a more specific error message if possible
             error_msg = install_result_dict['error'].lower()
             if "unable to locate package" in error_msg or "no match for argument" in error_msg:
-<<<<<<< HEAD
-                 return f"Error: Package '{package_name}' could not be found by {pkg_manager}. Please check the package name. Details: {install_result_dict['error']}"
-            elif "permission denied" in error_msg:
-                 return f"Error: Permission denied. Please ensure you are running this command with sufficient privileges (e.g., using sudo). Details: {install_result_dict['error']}"
-            else:
-                 return f"Error installing package '{package_name}' using {pkg_manager}. Details: {install_result_dict['error']}"
-        else:
-            log.info(f"Package '{package_name}' installed successfully.")
-            return f"Package '{package_name}' installed successfully. Output: {install_result_dict.get('output', '')}"
-
-    except Exception as e:
-        log.error(f"An unexpected error occurred during package installation: {e}")
-        return f"An unexpected error occurred during package installation: {e}"
-=======
->>>>>>> origin/main
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
